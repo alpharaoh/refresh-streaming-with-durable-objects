@@ -1,4 +1,6 @@
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject } from 'cloudflare:workers';
+import { streamText } from 'ai';
+import { openai } from '@ai-sdk/openai';
 
 /**
  * Welcome to Cloudflare Workers! This is your first Durable Objects application.
@@ -33,8 +35,18 @@ export class MyDurableObject extends DurableObject<Env> {
 	 * @param name - The name provided to a Durable Object instance from a Worker
 	 * @returns The greeting to be sent back to the Worker
 	 */
-	async sayHello(name: string): Promise<string> {
-		return `Hello, ${name}!`;
+	async promptLlm(prompt: string): Promise<string> {
+		const { textStream } = streamText({
+			model: openai('gpt-4o'),
+			system: 'You are a friendly assistant!',
+			prompt: prompt,
+		});
+
+		for await (const chunk of textStream) {
+			console.log(chunk);
+		}
+
+		return `Hello, ${prompt}!`;
 	}
 }
 
@@ -51,7 +63,7 @@ export default {
 		// Create a `DurableObjectId` for an instance of the `MyDurableObject`
 		// class named "foo". Requests from all Workers to the instance named
 		// "foo" will go to a single globally unique Durable Object instance.
-		const id: DurableObjectId = env.MY_DURABLE_OBJECT.idFromName("foo");
+		const id: DurableObjectId = env.MY_DURABLE_OBJECT.idFromName('foo');
 
 		// Create a stub to open a communication channel with the Durable
 		// Object instance.
@@ -59,7 +71,7 @@ export default {
 
 		// Call the `sayHello()` RPC method on the stub to invoke the method on
 		// the remote Durable Object instance
-		const greeting = await stub.sayHello("world");
+		const greeting = await stub.promptLlm('Why is the sky blue?');
 
 		return new Response(greeting);
 	},
