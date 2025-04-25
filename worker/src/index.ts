@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { streamText } from 'ai';
 import { createGoogleGenerativeAI, type GoogleGenerativeAIProvider } from '@ai-sdk/google';
+import { clearStream, handleWebSocket, sendMessage } from './utils';
 
 export class MyDurableObject extends DurableObject<Env> {
 	connections: Set<WebSocket>;
@@ -25,7 +26,8 @@ export class MyDurableObject extends DurableObject<Env> {
 			const webSocketPair = new WebSocketPair();
 			const [client, server] = Object.values(webSocketPair);
 
-			await this.handleWebSocket(server);
+			// Accept and add the WebSocket to the set of connections
+			await handleWebSocket(this.ctx, this.connections, server);
 
 			return new Response(undefined, {
 				status: 101,
@@ -34,7 +36,7 @@ export class MyDurableObject extends DurableObject<Env> {
 		}
 
 		// GET /prompt
-		if (request.method === 'GET' && new URL(request.url).pathname === '/prompt') {
+		if (request.method === 'POST' && new URL(request.url).pathname === '/prompt') {
 			const prompt = 'Write me a poem about the sun';
 
 			this.promptLlm(prompt);
@@ -46,21 +48,8 @@ export class MyDurableObject extends DurableObject<Env> {
 		return new Response('Not found');
 	}
 
-	sendMessage(message: string): void {
-		// Send to all WebSocket clients
-		for (const ws of this.connections) {
-			try {
-				ws.send(message);
-			} catch (err) {
-				// Clean up dead connections
-				this.connections.delete(ws);
-			}
-		}
-	}
-
 	async promptLlm(prompt: string): Promise<void> {
-		await this.ctx.storage.put('stream', '');
-		console.log('Prompting LLM with:', prompt);
+		await clearStream(this.ctx, this.connections);
 
 		const { textStream } = streamText({
 			model: this.google('models/gemini-2.0-flash-exp'),
@@ -73,28 +62,9 @@ export class MyDurableObject extends DurableObject<Env> {
 		for await (const chunk of textStream) {
 			fullOutput += chunk;
 
-			console.log('Sending chunk:', chunk);
-
-			this.sendMessage(chunk);
+			sendMessage(this.connections, chunk);
 			await this.ctx.storage.put('stream', fullOutput);
 		}
-	}
-
-	async handleWebSocket(ws: WebSocket) {
-		console.log('New WebSocket connection');
-
-		ws.accept();
-		this.connections.add(ws);
-
-		ws.send((await this.ctx.storage.get('stream')) as string);
-
-		ws.addEventListener('close', () => {
-			this.connections.delete(ws);
-		});
-
-		ws.addEventListener('error', () => {
-			this.connections.delete(ws);
-		});
 	}
 }
 

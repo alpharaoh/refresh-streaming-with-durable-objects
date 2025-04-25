@@ -10,8 +10,11 @@ export default function Home() {
     const socket = new WebSocket("http://localhost:8787");
 
     socket.onmessage = (e) => {
-      console.log("LLM chunk:", e.data);
-      setStreamText((prev) => prev + e.data);
+      if (e.data === "clear_text") {
+        setStreamText("");
+      } else {
+        setStreamText((prev) => prev + e.data);
+      }
     };
 
     socket.onopen = () => {
@@ -30,8 +33,20 @@ export default function Home() {
     };
   }, []);
 
+  const handleClick = () => {
+    try {
+      fetch("http://localhost:8787/prompt", { method: "POST" });
+    } catch {}
+  };
+
   return (
-    <div className="flex items-center justify-center h-dvh flex-col gap-10">
+    <div className="flex items-center justify-center h-dvh flex-col gap-5 p-5">
+      <button
+        className="cursor-pointer p-2 rounded-xl bg-stone-900 font-medium text-sm px-4"
+        onClick={handleClick}
+      >
+        Stream poem
+      </button>
       <div>
         {websocketConnected ? (
           <span className="text-green-500">✓ Connected</span>
@@ -39,7 +54,7 @@ export default function Home() {
           <span className="text-red-500">✗ Disconnected</span>
         )}
       </div>
-      <pre className="flex items-center justify-center max-w-6xl whitespace-pre-wrap font-[inherit]">
+      <pre className="flex items-center justify-center max-w-7xl whitespace-pre-wrap font-[inherit] max-h-10/12 overflow-y-auto border p-4 rounded-lg">
         {streamText}
       </pre>
     </div>
