@@ -1,11 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
 import { streamText } from 'ai';
 import { createGoogleGenerativeAI, type GoogleGenerativeAIProvider } from '@ai-sdk/google';
-import { clearStream, handleWebSocket, sendMessage } from './utils';
+import { handleWebSocket, sendMessage } from './utils';
+
+const CLEAR_STREAM_MESSAGE = 'clear_text';
 
 export class MyDurableObject extends DurableObject<Env> {
 	connections: Set<WebSocket>;
 	google: GoogleGenerativeAIProvider;
+	stream: string;
 
 	/**
 	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
@@ -19,15 +22,25 @@ export class MyDurableObject extends DurableObject<Env> {
 
 		this.connections = new Set();
 		this.google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY });
+		this.stream = '';
+	}
+
+	async initStream() {
+		if (!this.stream) {
+			this.stream = (await this.ctx.storage.get('stream')) || '';
+		}
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		await this.initStream();
+
 		if (request.headers.get('Upgrade') === 'websocket') {
 			const webSocketPair = new WebSocketPair();
 			const [client, server] = Object.values(webSocketPair);
 
 			// Accept and add the WebSocket to the set of connections
-			await handleWebSocket(this.ctx, this.connections, server);
+			await handleWebSocket(this.connections, server);
+			server.send(this.stream);
 
 			return new Response(undefined, {
 				status: 101,
@@ -49,7 +62,10 @@ export class MyDurableObject extends DurableObject<Env> {
 	}
 
 	async promptLlm(prompt: string): Promise<void> {
-		await clearStream(this.ctx, this.connections);
+		// Clear the stream upon new prompt
+		this.stream = '';
+		await this.ctx.storage.put('stream', '');
+		sendMessage(this.connections, CLEAR_STREAM_MESSAGE);
 
 		const { textStream } = streamText({
 			model: this.google('models/gemini-2.0-flash-exp'),
@@ -63,8 +79,12 @@ export class MyDurableObject extends DurableObject<Env> {
 			fullOutput += chunk;
 
 			sendMessage(this.connections, chunk);
-			await this.ctx.storage.put('stream', fullOutput);
+
+			this.stream = fullOutput;
 		}
+
+		// Persist the stream output to disk storage
+		await this.ctx.storage.put('stream', fullOutput);
 	}
 }
 
