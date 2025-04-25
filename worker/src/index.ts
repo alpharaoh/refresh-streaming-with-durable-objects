@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { streamText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google';
 
 /**
  * Welcome to Cloudflare Workers! This is your first Durable Objects application.
@@ -39,8 +39,9 @@ export class MyDurableObject extends DurableObject<Env> {
 
 	async fetch(request: Request): Promise<Response> {
 		if (request.headers.get('Upgrade') === 'websocket') {
-			const webSocketPair = new WebSocketPair();
-			const [client, server] = Object.values(webSocketPair);
+			const pair = new WebSocketPair();
+			const client = pair[0];
+			const server = pair[1];
 
 			this.handleWebSocket(server);
 
@@ -50,8 +51,8 @@ export class MyDurableObject extends DurableObject<Env> {
 			});
 		}
 
-		// POST /prompt
-		if (request.method === 'POST' && new URL(request.url).pathname === '/prompt') {
+		// GET /prompt
+		if (request.method === 'GET' && new URL(request.url).pathname === '/prompt') {
 			const prompt = 'Write me a poem about the sun';
 
 			this.promptLlm(prompt);
@@ -61,18 +62,35 @@ export class MyDurableObject extends DurableObject<Env> {
 
 		// GET /
 		if (request.method === 'GET' && new URL(request.url).pathname === '/') {
-			const stream = (await this.ctx.storage.get('stream')) as string;
+			const fallback = 'No stream found. Please prompt me with a message. POST /prompt';
+			const stream = (await this.ctx.storage.get('stream')) as string | undefined;
 
-			return new Response(stream);
+			return new Response(stream || fallback);
 		}
 
 		// Fallback
 		return new Response('Not found');
 	}
 
+	async sendMessage(message: string): Promise<void> {
+		console.log('Sending message:', message);
+
+		// Send to all WebSocket clients
+		for (const ws of this.connections) {
+			try {
+				ws.send(message);
+			} catch (err) {
+				// Clean up dead connections
+				this.connections.delete(ws);
+			}
+		}
+	}
+
 	async promptLlm(prompt: string): Promise<void> {
+		console.log('Prompting LLM with:', prompt);
+
 		const { textStream } = streamText({
-			model: openai('gpt-4o'),
+			model: google('models/gemini-2.0-flash-exp'),
 			system: 'You are a friendly assistant!',
 			prompt,
 		});
@@ -81,6 +99,8 @@ export class MyDurableObject extends DurableObject<Env> {
 
 		for await (const chunk of textStream) {
 			fullOutput += chunk;
+
+			console.log('Sending chunk:', chunk);
 
 			// Send to all WebSocket clients
 			for (const ws of this.connections) {
@@ -97,6 +117,8 @@ export class MyDurableObject extends DurableObject<Env> {
 	}
 
 	handleWebSocket(ws: WebSocket) {
+		console.log('New WebSocket connection');
+
 		ws.accept();
 		this.connections.add(ws);
 
