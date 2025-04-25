@@ -11,11 +11,11 @@
 !.yarn/versions
 
 # testing
-/coverage
+**/coverage
 
 # next.js
-/.next/
-/out/
+**/.next/
+**/out/
 
 # production
 **/build
@@ -31,10 +31,10 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+**/.env
 
 # vercel
-.vercel
+**/..vercel
 
 # typescript
 *.tsbuildinfo
