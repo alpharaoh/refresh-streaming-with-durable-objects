@@ -17,6 +17,8 @@ import { openai } from '@ai-sdk/openai';
 
 /** A Durable Object's behavior is defined in an exported Javascript class */
 export class MyDurableObject extends DurableObject<Env> {
+	connections: Set<WebSocket>;
+
 	/**
 	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
 	 * 	`DurableObjectStub::get` for a given identifier (no-op constructors can be omitted)
@@ -26,27 +28,85 @@ export class MyDurableObject extends DurableObject<Env> {
 	 */
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
+
+		this.connections = new Set();
 	}
 
-	/**
-	 * The Durable Object exposes an RPC method sayHello which will be invoked when when a Durable
-	 *  Object instance receives a request from a Worker via the same method invocation on the stub
-	 *
-	 * @param name - The name provided to a Durable Object instance from a Worker
-	 * @returns The greeting to be sent back to the Worker
-	 */
-	async promptLlm(prompt: string): Promise<string> {
+	async getStream(): Promise<string> {
+		const current = (await this.ctx.storage.get('stream')) as string;
+		return current;
+	}
+
+	async fetch(request: Request): Promise<Response> {
+		if (request.headers.get('Upgrade') === 'websocket') {
+			const webSocketPair = new WebSocketPair();
+			const [client, server] = Object.values(webSocketPair);
+
+			this.handleWebSocket(server);
+
+			return new Response(undefined, {
+				status: 101,
+				webSocket: client,
+			});
+		}
+
+		// POST /prompt
+		if (request.method === 'POST' && new URL(request.url).pathname === '/prompt') {
+			const prompt = 'Write me a poem about the sun';
+
+			this.promptLlm(prompt);
+
+			return new Response('Prompt received');
+		}
+
+		// GET /
+		if (request.method === 'GET' && new URL(request.url).pathname === '/') {
+			const stream = (await this.ctx.storage.get('stream')) as string;
+
+			return new Response(stream);
+		}
+
+		// Fallback
+		return new Response('Not found');
+	}
+
+	async promptLlm(prompt: string): Promise<void> {
 		const { textStream } = streamText({
 			model: openai('gpt-4o'),
 			system: 'You are a friendly assistant!',
-			prompt: prompt,
+			prompt,
 		});
 
+		let fullOutput = '';
+
 		for await (const chunk of textStream) {
-			console.log(chunk);
+			fullOutput += chunk;
+
+			// Send to all WebSocket clients
+			for (const ws of this.connections) {
+				try {
+					ws.send(chunk);
+				} catch (err) {
+					// Clean up dead connections
+					this.connections.delete(ws);
+				}
+			}
 		}
 
-		return `Hello, ${prompt}!`;
+		await this.ctx.storage.put('stream', fullOutput);
+	}
+
+	handleWebSocket(ws: WebSocket) {
+		ws.accept();
+		this.connections.add(ws);
+
+		ws.addEventListener('close', () => {
+			this.connections.delete(ws);
+		});
+
+		ws.addEventListener('error', () => {
+			this.connections.delete(ws);
+		});
 	}
 }
 
@@ -69,10 +129,6 @@ export default {
 		// Object instance.
 		const stub = env.MY_DURABLE_OBJECT.get(id);
 
-		// Call the `sayHello()` RPC method on the stub to invoke the method on
-		// the remote Durable Object instance
-		const greeting = await stub.promptLlm('Why is the sky blue?');
-
-		return new Response(greeting);
+		return stub.fetch(request);
 	},
 } satisfies ExportedHandler<Env>;
