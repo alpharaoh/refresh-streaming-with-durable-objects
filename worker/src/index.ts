@@ -32,18 +32,12 @@ export class MyDurableObject extends DurableObject<Env> {
 		this.connections = new Set();
 	}
 
-	async getStream(): Promise<string> {
-		const current = (await this.ctx.storage.get('stream')) as string;
-		return current;
-	}
-
 	async fetch(request: Request): Promise<Response> {
 		if (request.headers.get('Upgrade') === 'websocket') {
-			const pair = new WebSocketPair();
-			const client = pair[0];
-			const server = pair[1];
+			const webSocketPair = new WebSocketPair();
+			const [client, server] = Object.values(webSocketPair);
 
-			this.handleWebSocket(server);
+			await this.handleWebSocket(server);
 
 			return new Response(undefined, {
 				status: 101,
@@ -60,12 +54,11 @@ export class MyDurableObject extends DurableObject<Env> {
 			return new Response('Prompt received');
 		}
 
-		// GET /
-		if (request.method === 'GET' && new URL(request.url).pathname === '/') {
-			const fallback = 'No stream found. Please prompt me with a message. POST /prompt';
-			const stream = (await this.ctx.storage.get('stream')) as string | undefined;
+		// GET /clear
+		if (request.method === 'GET' && new URL(request.url).pathname === '/clear') {
+			await this.ctx.storage.put('stream', '');
 
-			return new Response(stream || fallback);
+			return new Response('Stream cleared');
 		}
 
 		// Fallback
@@ -73,8 +66,6 @@ export class MyDurableObject extends DurableObject<Env> {
 	}
 
 	async sendMessage(message: string): Promise<void> {
-		console.log('Sending message:', message);
-
 		// Send to all WebSocket clients
 		for (const ws of this.connections) {
 			try {
@@ -89,38 +80,115 @@ export class MyDurableObject extends DurableObject<Env> {
 	async promptLlm(prompt: string): Promise<void> {
 		console.log('Prompting LLM with:', prompt);
 
-		const { textStream } = streamText({
-			model: google('models/gemini-2.0-flash-exp'),
-			system: 'You are a friendly assistant!',
-			prompt,
-		});
+		let fullOutput = `Beneath the hush of silver moons,
+			Where stars like wayward lilies swoon,
+			There lies a gate of mirrored hue—
+			A threshold stitched of cloud and dew.
 
-		let fullOutput = '';
+			Beyond it hums a sleeping land,
+			Untouched by mortal heart or hand,
+			Where rivers laugh and mountains sigh,
+			Inside the garden past the sky.
 
-		for await (const chunk of textStream) {
-			fullOutput += chunk;
+			The roots are spun from dreams half-spoke,
+			The trunks from songs the ancients wrote.
+			The leaves are glass, the branches gleam,
+			With fruits that birth another dream.
+
+			Each petal sings in whispered streams,
+			The colors dance beyond their seams.
+			A thousand scents in chorus rise—
+			Warm cedar smoke, wet stone, sunrise.
+
+			The ground is soft as lullabies,
+			It hums beneath with breath and sighs.
+			Each stone, each blade, each bending reed,
+			Recites some long-forgotten creed.
+
+			The air is thick with honeyed light,
+			As if each atom learned to write.
+			It writes of love, it weaves of grief,
+			It pens the bones of every leaf.
+
+			There stands a tree of woven gold,
+			Its branches spiral, tight and bold,
+			And on its boughs are nested things—
+			Not birds, but echoes stitched with wings.
+
+			The river's mouth, a yawning flame,
+			Sings every time you call a name;
+			Your voice returns, not quite the same,
+			As if your soul had caught the blame.
+
+			The mountains weep with snow of fire,
+			Their crowns ablaze with cool desire.
+			They crack and moan like fiddles played
+			Upon a shipwreck's ghostly grave.
+
+			There in the Garden, time is thin—
+			It folds and flips with every spin.
+			A thousand futures clothe the ground,
+			Each step a different path unwound.
+
+			A boy could stumble into age,
+			A crone could step and turn the page,
+			Become again a babe of grace,
+			With dimpled hands and milk-sweet face.
+
+			The stars above are stitched with thread,
+			From thoughts of all the dreaming dead;
+			Their light is not a mindless flame,
+			But each a soul who sang their name.
+
+			The Garden's heart is not a throne,
+			No king, no queen, no blood, no bone—
+			But in its core, a pond does lie,
+			Reflecting not the Earth, but sky.
+
+			Its surface smooth, its ripples spare,
+			Each gaze unlocks a hidden stair`;
+
+		let soFar = '';
+
+		for (let i = 0; i < fullOutput.length; i++) {
+			const chunk = fullOutput.substring(i, i + 1);
+
+			soFar += chunk;
 
 			console.log('Sending chunk:', chunk);
+			this.sendMessage(chunk);
 
-			// Send to all WebSocket clients
-			for (const ws of this.connections) {
-				try {
-					ws.send(chunk);
-				} catch (err) {
-					// Clean up dead connections
-					this.connections.delete(ws);
-				}
-			}
+			await this.ctx.storage.put('stream', soFar);
+
+			await new Promise((resolve) => setTimeout(resolve, 2));
 		}
 
-		await this.ctx.storage.put('stream', fullOutput);
+		// const { textStream } = streamText({
+		// 	model: google('models/gemini-2.0-flash-exp'),
+		// 	system: 'You are a friendly assistant!',
+		// 	prompt,
+		// });
+		//
+		// let fullOutput = '';
+		//
+		// for await (const chunk of textStream) {
+		// 	fullOutput += chunk;
+		//
+		// 	console.log('Sending chunk:', chunk);
+		//
+		// 	this.sendMessage(chunk);
+		// }
+
+		// await this.ctx.storage.put('stream', fullOutput);
 	}
 
-	handleWebSocket(ws: WebSocket) {
+	async handleWebSocket(ws: WebSocket) {
 		console.log('New WebSocket connection');
 
 		ws.accept();
 		this.connections.add(ws);
+
+		ws.send((await this.ctx.storage.get('stream')) as string);
 
 		ws.addEventListener('close', () => {
 			this.connections.delete(ws);
