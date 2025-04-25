@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import { streamText } from 'ai';
 import { createGoogleGenerativeAI, type GoogleGenerativeAIProvider } from '@ai-sdk/google';
-import { handleWebSocket, sendMessage } from './utils';
+import { handleWebSocket, sendMessage } from './utils/webhook';
+import { CorsResponse } from './utils/cors-response';
 
 const CLEAR_STREAM_MESSAGE = 'clear_text';
 
@@ -32,6 +33,10 @@ export class MyDurableObject extends DurableObject<Env> {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		if (request.method === 'OPTIONS') {
+			return new CorsResponse(undefined, { status: 204 });
+		}
+
 		await this.initStream();
 
 		if (request.headers.get('Upgrade') === 'websocket') {
@@ -54,11 +59,11 @@ export class MyDurableObject extends DurableObject<Env> {
 
 			this.promptLlm(prompt);
 
-			return new Response('Prompt received');
+			return new CorsResponse('Prompt received', { status: 200 });
 		}
 
 		// Fallback
-		return new Response('Not found');
+		return new CorsResponse('Not found', { status: 404 });
 	}
 
 	async promptLlm(prompt: string): Promise<void> {

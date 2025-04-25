@@ -34,9 +34,7 @@ export default function Home() {
   }, []);
 
   const handleClick = () => {
-    try {
-      fetch("http://localhost:8787/prompt", { method: "POST" });
-    } catch {}
+    fetch("http://localhost:8787/prompt", { method: "POST" });
   };
 
   return (
