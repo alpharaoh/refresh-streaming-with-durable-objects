@@ -4,4 +4,7 @@ This project uses Cloudflare Durable Objects that enables reliable, crash-tolera
 
 Built to handle real-time AI responses, even across reconnections or client refreshes.
 
-<img width="618" alt="Screenshot 2025-04-25 at 19 23 42" src="https://github.com/user-attachments/assets/f2c6a19a-9874-46bb-b5b3-597572593509" />
+<div style="display: flex; gap: 25px; align-items: flex-start;">
+  <img src="https://github.com/user-attachments/assets/05a659cc-59ce-4f68-ab14-161c9b4f6d4a" width="40%" />
+  <img src="https://github.com/user-attachments/assets/f2c6a19a-9874-46bb-b5b3-597572593509" width="52%" />
+</div>
