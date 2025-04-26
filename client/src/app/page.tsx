@@ -8,7 +8,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const socket = new WebSocket("http://localhost:8787");
+    const socket = new WebSocket(process.env.NEXT_PUBLIC_WORKER_URL as string);
 
     socket.onmessage = (e) => {
       if (e.data === "clear_text") {
@@ -38,7 +38,7 @@ export default function Home() {
   }, []);
 
   const handleClick = () => {
-    fetch("http://localhost:8787/prompt", { method: "POST" });
+    fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/prompt`, { method: "POST" });
   };
 
   return (

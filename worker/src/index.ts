@@ -34,7 +34,7 @@ export class MyDurableObject extends DurableObject<Env> {
 
 	async fetch(request: Request): Promise<Response> {
 		if (request.method === 'OPTIONS') {
-			return new CorsResponse(undefined, { status: 204 });
+			return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, undefined, { status: 204 });
 		}
 
 		await this.initStream();
@@ -59,11 +59,11 @@ export class MyDurableObject extends DurableObject<Env> {
 
 			this.promptLlm(prompt);
 
-			return new CorsResponse('Prompt received', { status: 200 });
+			return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, 'Prompt received', { status: 200 });
 		}
 
 		// Fallback
-		return new CorsResponse('Not found', { status: 404 });
+		return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, 'Not found', { status: 404 });
 	}
 
 	async promptLlm(prompt: string): Promise<void> {
