@@ -24,20 +24,17 @@ export class MyDurableObject extends DurableObject<Env> {
 		this.connections = new Set();
 		this.google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY });
 		this.stream = '';
-	}
 
-	async initStream() {
-		if (!this.stream) {
-			this.stream = (await this.ctx.storage.get('stream')) || '';
-		}
+		// Initialize the stored stream in memory upon creation of DO
+		ctx.blockConcurrencyWhile(async () => {
+			this.stream = (await ctx.storage.get<string>('stream')) || '';
+		});
 	}
 
 	async fetch(request: Request): Promise<Response> {
 		if (request.method === 'OPTIONS') {
 			return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, undefined, { status: 204 });
 		}
-
-		await this.initStream();
 
 		if (request.headers.get('Upgrade') === 'websocket') {
 			const webSocketPair = new WebSocketPair();
