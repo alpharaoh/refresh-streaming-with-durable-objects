@@ -10,6 +10,7 @@ export class MyDurableObject extends DurableObject<Env> {
 	connections: Set<WebSocket>;
 	google: GoogleGenerativeAIProvider;
 	stream: string;
+	isGenerating: boolean;
 
 	/**
 	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
@@ -24,6 +25,7 @@ export class MyDurableObject extends DurableObject<Env> {
 		this.connections = new Set();
 		this.google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY });
 		this.stream = '';
+		this.isGenerating = false;
 
 		// Initialize the stored stream in memory upon creation of DO
 		ctx.blockConcurrencyWhile(async () => {
@@ -32,10 +34,12 @@ export class MyDurableObject extends DurableObject<Env> {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// CORS pre-flight
 		if (request.method === 'OPTIONS') {
 			return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, undefined, { status: 204 });
 		}
 
+		// Websocket upgrade
 		if (request.headers.get('Upgrade') === 'websocket') {
 			const webSocketPair = new WebSocketPair();
 			const [client, server] = Object.values(webSocketPair);
@@ -54,7 +58,14 @@ export class MyDurableObject extends DurableObject<Env> {
 		if (request.method === 'POST' && new URL(request.url).pathname === '/prompt') {
 			const prompt = 'Write me a poem about the sun';
 
-			this.promptLlm(prompt);
+			if (this.isGenerating) {
+				return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, 'Busy', { status: 429 });
+			}
+
+			this.isGenerating = true;
+			const generation = this.promptLlm(prompt).finally(() => (this.isGenerating = false));
+			// Ensure DO stays alive while generating
+			this.ctx.waitUntil(generation);
 
 			return new CorsResponse(this.env.ALLOWED_ORIGIN_URL, 'Prompt received', { status: 200 });
 		}
